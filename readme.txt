@@ -1,5 +1,5 @@
 ================================================================================
-Nginx Web Host Creator
+Nginx Web Host Manager
 ================================================================================
 Author:          Matthew Mumau (mpmumau@gmail.com)
 Creation data:   March 9, 2014
