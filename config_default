@@ -4,7 +4,7 @@
 # You may edit these variables to match your system configuration
 
 readonly NGINX_DIRECTORY='/etc/nginx'
-readonly NGINX_PORT='8080'
+readonly NGINX_PORT='80'
 readonly NGINX_LOG_DIRECTORY='/var/log/nginx'
 readonly WWW_DIRECTORY='/var/www'
 readonly HTPASSWD_DIRECTORY='/etc/nginx/htpasswd'
