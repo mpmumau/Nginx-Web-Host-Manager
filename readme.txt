@@ -20,24 +20,26 @@ TODO: INSERT INSTALLATION INSTRUCTIONS
 
 ===============================[Usage]==========================================
 
-1. Edit the "config" file to provide default values to use to generate hosts.
+1. Edit the "config_default" file to provide default values to use to generate hosts.
 These values include MySQL credentials sufficient to create users and databases,
 as well as various directories needed to run an Nginx web application.
 
-2. Run the create_web_host script as root.
+2. Copy the "config_default" file to "config".
 
-3. Follow along with the script instructions to enter various values neccessary
+3. Run the create_web_host script as root.
+
+4. Follow along with the script instructions to enter various values neccessary
 to create the web host.
 
-4. A tarball file will be placed in the root directory of a new user named with 
+5. A tarball file will be placed in the root directory of a new user named with 
 your domain name, minus the top-level domain (for example, example.com would 
 create a user named example). That file will contain all credentials needed
 you access the various components of the web host.
 
-5. Scripts will also be placed in that new user's directory to be used to update
+6. Scripts will also be placed in that new user's directory to be used to update
 the various components of the host.
 
-6. To completely remove a web host you have installed, run the delete_web_host
+7. To completely remove a web host you have installed, run the delete_web_host
 script as such:
 
   delete_web_host [DOMAIN_NAME]
