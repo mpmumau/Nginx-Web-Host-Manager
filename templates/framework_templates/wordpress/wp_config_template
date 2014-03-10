@@ -1,0 +1,27 @@
+<?php 
+	define('DB_NAME', '%DATABASE_NAME%'); 
+	define('DB_USER', '%DATABASE_USER%'); 
+	define('DB_PASSWORD', '%DATABASE_PASSWORD%'); 
+	define('DB_HOST', 'localhost'); 
+	define('DB_CHARSET', 'utf8'); 
+	define('DB_COLLATE', ''); 
+	
+	define('AUTH_KEY', '%AUTH_KEY%'); 
+	define('SECURE_AUTH_KEY', '%SECURE_AUTH_KEY%'); 
+	define('LOGGED_IN_KEY', '%LOGGED_IN_KEY%'); 
+	define('NONCE_KEY', '%NONCE_KEY%'); 
+	define('AUTH_SALT', '%AUTH_SALT%'); 
+	define('SECURE_AUTH_SALT', '%SECURE_AUTH_SALT%'); 
+	define('LOGGED_IN_SALT', '%LOGGED_IN_SALT%'); 
+	define('NONCE_SALT', '%NONCE_SALT%'); 
+	
+	$table_prefix = 'wp_'; 
+
+	define('WPLANG', ''); 
+	
+	define('WP_DEBUG', false); 
+	
+	if ( !defined('ABSPATH') ) 
+		define('ABSPATH', dirname(__FILE__) . '/'); 
+	
+	require_once(ABSPATH . 'wp-settings.php');

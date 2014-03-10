@@ -1,0 +1,15 @@
+#!/bin/bash
+#==============================================================================
+# SCRIPT CONFIG VARS
+# You may edit these variables to match your system configuration
+
+readonly NGINX_DIRECTORY='/etc/nginx'
+readonly NGINX_PORT='8080'
+readonly NGINX_LOG_DIRECTORY='/var/log/nginx'
+readonly WWW_DIRECTORY='/var/www'
+readonly HTPASSWD_DIRECTORY='/etc/nginx/htpasswd'
+readonly MASTER_MYSQL_USER='INSERT MYSQL USERNAME'
+readonly MASTER_MYSQL_PASSWORD='INSERT MYSQL PASSWORD'
+readonly IP_ADDRESS='INSERT IP ADDRESS OF SERVER'
+readonly GIT_ROOT_DIRECTORY='/opt/git'
+

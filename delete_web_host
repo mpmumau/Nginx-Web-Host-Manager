@@ -1,0 +1,50 @@
+#!/bin/bash
+#
+# Delete a web host as created by the create_web_host script
+
+#==============================================================================
+# INCLUDE SCRIPT CONFIG VARS
+source $SCRIPT_DIRECTORY/config
+
+#==============================================================================
+# MAIN
+
+# Check for correct number of arguments
+if [ $# -ne 1 ]; then
+  printf "Incorrect arguments"
+  exit 0
+fi
+
+DOMAIN_NAME=$1
+SIMPLE_NAME=$(echo $1 | sed 's/\.[a-zA-Z]\+$//')
+
+# DELETE FILES AND DIRECTORIES
+rm /etc/nginx/sites-available/$DOMAIN_NAME
+rm /etc/nginx/sites-enabled/$DOMAIN_NAME
+rm -R /opt/git/$DOMAIN_NAME.git
+rm -R /home/$SIMPLE_NAME
+rm -R /var/www/$DOMAIN_NAME
+rm /etc/nginx/htpasswd/.htpasswd_$DOMAIN_NAME
+rm /var/log/nginx/stage.$DOMAIN_NAME.error.log
+rm /var/log/nginx/stage.$DOMAIN_NAME.access.log
+rm /var/log/nginx/dev.$DOMAIN_NAME.error.log
+rm /var/log/nginx/dev.$DOMAIN_NAME.access.log
+rm /var/log/nginx/live.$DOMAIN_NAME.error.log
+rm /var/log/nginx/live.$DOMAIN_NAME.access.log
+
+# REMOVE LINUX USER
+userdel $SIMPLE_NAME
+groupdel $SIMPLE_NAME
+groupdel "www-"$SIMPLE_NAME
+
+# REMOVE MYSQL DATABASES AND USER
+mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PW -e "DROP DATABASE "$SIMPLE_NAME"_dev;"
+mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PW -e "DROP DATABASE "$SIMPLE_NAME"_stage;"
+mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PW -e "DROP DATABASE "$SIMPLE_NAME"_live;"
+mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PW -e "DROP USER '$SIMPLE_NAME'@'localhost'"
+
+# RESTART WEB SERVER
+service nginx restart
+service php5-fpm restart
+
+

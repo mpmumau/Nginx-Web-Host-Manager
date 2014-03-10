@@ -1,0 +1,19 @@
+<!DOCTYPE HTML>
+
+<html>
+
+<head>
+  <style>
+  body {background-color:%COLOR%; color:white; font-size:4em;}
+  </style>
+</head>
+
+<body>
+
+  <div style='width:100%; text-align:center;'>
+    <h1>[%SITE_TYPE%] %DOMAIN_NAME%
+  </div>
+  
+</body>
+
+</html>

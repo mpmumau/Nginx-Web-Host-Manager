@@ -1,0 +1,645 @@
+#!/bin/bash
+#
+# A script to create and configure the directories, database and git
+# repositories for a typical web applications using nginx.
+
+#==============================================================================
+# USER INPUT VARIABLE DECLARATION
+DOMAIN_NAME=''
+WEB_FRAMEWORK=''
+declare -A SITE_INSTANCES
+SITE_INSTANCES[dev]=''
+SITE_INSTANCES[stage]=''
+SITE_INSTANCES[live]=''
+declare -A SITE_INSTANCES_AUTH
+SITE_INSTANCES_AUTH[dev]=''
+SITE_INSTANCES_AUTH[stage]=''
+SITE_INSTANCES_AUTH[live]=''
+EMAIL_ADDRESS=''
+
+#==============================================================================
+# OTHER VARIABLE DECLARATION
+DIRECTORY_NAME=''
+LINUX_USER=''
+LINUX_GROUP=''
+DATABASE_NAME=''
+DATABASE_USER=''
+HTPASSWD_FILE=''
+GIT_DIRECTORY=''
+SIMPLE_NAME=''
+SITE_USER=''
+
+#==============================================================================
+# AUTO GEN VARIABLES
+readonly SCRIPT_DIRECTORY=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
+readonly LINUX_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 16 | head -n 1)
+readonly DATABASE_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 16 | head -n 1)
+readonly HTPASSWD_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 16 | head -n 1)
+readonly SSH_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 6 | head -n 1)
+readonly SITE_PASSWORD=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 16 | head -n 1)
+
+#==============================================================================
+# INCLUDE SCRIPT CONFIG VARS
+source $SCRIPT_DIRECTORY/config
+
+#==============================================================================
+# FUNCTION DEFINTIONS
+
+# CHECK IF ROOT
+check_if_root() {
+  if [[ $EUID -ne 0 ]]; then
+    printf 'This script must be run as root'
+    exit 1
+  fi
+}
+
+# GET INPUT FROM USER
+get_info() {
+  while [[ -z $DOMAIN_NAME ]]; do
+    read -p 'Enter domain name (without www): ' TEMP_DOMAIN_NAME
+
+    if [[ -n $TEMP_DOMAIN_NAME ]]; then
+      if ! [[ $TEMP_DOMAIN_NAME =~ ^www\. ]]; then
+        DOMAIN_NAME=$TEMP_DOMAIN_NAME
+      fi
+    fi
+  done
+
+  while [[ -z $WEB_FRAMEWORK ]]; do
+    read -p 'Web framework [none|drupal|wordpress|cakephp]: ' TEMP_WEB_FRAMEWORK
+
+    if [[ $TEMP_WEB_FRAMEWORK == 'none' ]] || [[ $TEMP_WEB_FRAMEWORK == 'drupal' ]] || [[ $TEMP_WEB_FRAMEWORK == 'wordpress' ]] || [[ $TEMP_WEB_FRAMEWORK == 'cakephp' ]]; then
+      WEB_FRAMEWORK=$TEMP_WEB_FRAMEWORK
+    fi
+  done
+
+  while [[ -z $EMAIL_ADDRESS ]]; do
+    read -p 'Enter administrative email address: ' TEMP_EMAIL_ADDRESS
+
+    if [[ -n $TEMP_EMAIL_ADDRESS ]]; then
+      EMAIL_ADDRESS=$TEMP_EMAIL_ADDRESS
+    fi
+  done
+
+  while [[ -z ${SITE_INSTANCES[dev]} ]]; do
+    read -p 'Create dev site (y/n)?: ' TEMP_CREATE_DEV
+    if [[ -n $TEMP_CREATE_DEV ]]; then
+      if [[ $TEMP_CREATE_DEV == 'y' ]] || [[ $TEMP_CREATE_DEV == 'n' ]]; then
+        SITE_INSTANCES[dev]=$TEMP_CREATE_DEV
+        if [[ $TEMP_CREATE_DEV == 'y' ]]; then
+          while [[ -z ${SITE_INSTANCES_AUTH[dev]} ]]; do
+            read -p 'Protect dev site with htpasswd (y/n)?: ' TEMP_PROTECT_DEV
+            if [[ -n $TEMP_PROTECT_DEV ]]; then
+              if [[ $TEMP_PROTECT_DEV == 'y' ]] || [[ $TEMP_PROTECT_DEV == 'n' ]]; then
+                SITE_INSTANCES_AUTH[dev]=$TEMP_PROTECT_DEV
+              fi
+            fi
+          done
+        fi
+      fi
+    fi
+  done
+
+  while [[ -z ${SITE_INSTANCES[stage]} ]]; do
+    read -p 'Create stage site (y/n)?: ' TEMP_CREATE_STAGE
+    if [[ -n $TEMP_CREATE_STAGE ]]; then
+      if [[ $TEMP_CREATE_STAGE == 'y' ]] || [[ $TEMP_CREATE_STAGE == 'n' ]]; then
+        SITE_INSTANCES[stage]=$TEMP_CREATE_STAGE
+        if [[ $TEMP_CREATE_STAGE == 'y' ]]; then
+          while [[ -z ${SITE_INSTANCES_AUTH[stage]} ]]; do
+            read -p 'Protect stage site with htpasswd (y/n)?: ' TEMP_PROTECT_STAGE
+            if [[ -n $TEMP_PROTECT_STAGE ]]; then
+              if [[ $TEMP_PROTECT_STAGE == 'y' ]] || [[ $TEMP_PROTECT_STAGE == 'n' ]]; then
+                SITE_INSTANCES_AUTH[stage]=$TEMP_PROTECT_STAGE
+              fi
+            fi
+          done
+        fi
+      fi
+    fi
+  done
+
+  while [[ -z ${SITE_INSTANCES[live]} ]]; do
+    read -p "Create live site (y/n)?: " TEMP_CREATE_LIVE
+    if [[ -n $TEMP_CREATE_LIVE ]]; then
+      if [[ $TEMP_CREATE_LIVE == 'y' ]] || [[ $TEMP_CREATE_LIVE == 'n' ]]; then
+        SITE_INSTANCES[live]=$TEMP_CREATE_LIVE
+        if [[ $TEMP_CREATE_LIVE == 'y' ]]; then
+          while [[ -z ${SITE_INSTANCES_AUTH[live]} ]]; do
+            read -p 'Protect live site with htpasswd (y/n)?: ' TEMP_PROTECT_LIVE
+            if [[ -n $TEMP_PROTECT_LIVE ]]; then
+              if [[ $TEMP_PROTECT_LIVE == 'y' ]] || [[ $TEMP_PROTECT_LIVE == 'n' ]]; then
+                SITE_INSTANCES_AUTH[live]=$TEMP_PROTECT_LIVE
+              fi
+            fi
+          done
+        fi
+      fi
+    fi
+  done
+
+  # Set other variables automatically
+  SIMPLE_NAME=$(echo $DOMAIN_NAME | sed 's/\.[a-zA-Z]\+$//')
+  DIRECTORY_NAME=$DOMAIN_NAME
+  DATABASE_USER=$SIMPLE_NAME
+  DATABASE_NAME=$SIMPLE_NAME
+  LINUX_USER=$SIMPLE_NAME
+  LINUX_GROUP='www-'$SIMPLE_NAME
+  HTPASSWD_FILE=$HTPASSWD_DIRECTORY'/.htpasswd_'$SIMPLE_NAME
+  GIT_DIRECTORY=$GIT_ROOT_DIRECTORY'/'$DIRECTORY_NAME'.git'
+
+  # Confirms whether or not the information was correct
+  confirm_info
+}
+
+# CONFIRM INFORMATION
+confirm_info() {
+  printf '\n=================================================================\n'
+  printf 'Web host will be generated with the following information:\n'
+  printf '=================================================================\n\n'
+
+  printf '***************************[Provided]****************************\n\n'
+
+  printf "Domain name: \t\t$DOMAIN_NAME\n"
+  printf "Web framework: \t\t$WEB_FRAMEWORK\n"
+  printf "Create dev: \t\t${SITE_INSTANCES[dev]}\n"
+  printf "Protect dev: \t\t${SITE_INSTANCES_AUTH[dev]}\n"
+  printf "Create stage: \t\t${SITE_INSTANCES[stage]}\n"
+  printf "Protect stage: \t\t${SITE_INSTANCES_AUTH[stage]}\n"
+  printf "Create live: \t\t${SITE_INSTANCES[live]}\n"
+  printf "Protect live: \t\t${SITE_INSTANCES_AUTH[dev]}\n\n"
+
+  printf '************************[Auto Generated]*************************\n\n'
+
+  printf "Linux user (owner): \t$LINUX_USER\n"
+  printf "Linux group: \t\t$LINUX_GROUP\n"
+  printf "Linux password: \t$LINUX_PASSWORD\n\n"
+
+  printf "SSH password: \t\t$SSH_PASSWORD\n\n"
+
+  printf "Database name: \t\t$DATABASE_NAME\n"
+  printf "Database user: \t\t$DATABASE_USER\n"
+  printf "Database Password: \t$DATABASE_PASSWORD\n\n"
+
+  printf ".htaccess file: \t$HTPASSWD_FILE\n"
+  printf ".htaccess Password: \t$HTPASSWD_PASSWORD\n\n"
+
+  printf "git directory: \t\t$GIT_DIRECTORY\n\n"
+
+  printf "Site password: \t\t$SITE_PASSWORD\n\n"
+
+  printf '=================================================================\n'
+  printf 'The information above will be used to create the web host.\n'
+
+  while [[ -z $CONFIRM_INFORMATION ]]; do
+    read -p "Is this information correct (y/n)?: " TEMP_CONFIRM_INFORMATION
+    if [ "$TEMP_CONFIRM_INFORMATION" == "y" -o  "$TEMP_CONFIRM_INFORMATION" == "n" ]; then
+      if [ "$TEMP_CONFIRM_INFORMATION" == "n" ]; then
+        reset_variables
+      else
+        CONFIRM_INFORMATION=$TEMP_CONFIRM_INFORMATION
+      fi
+    fi
+  done
+}
+
+# CREATE CREDENTIALS
+create_credentials() {
+  # Add Linux user and set password
+  useradd $LINUX_USER
+  echo $LINUX_USER:$LINUX_PASSWORD | chpasswd
+
+  # Create www-USERNAME group
+  groupadd www-$LINUX_USER
+
+  # Create user home directory
+  mkdir /home/$LINUX_USER
+  chown -R $LINUX_USER:$LINUX_USER /home/$LINUX_USER
+  chmod -R 750 /home/$LINUX_USER
+  chmod -R g+s /home/$LINUX_USER
+
+  # Create SSH directory
+  mkdir /home/$LINUX_USER/.ssh
+  chown -R $LINUX_USER:$LINUX_USER /home/$LINUX_USER/.ssh
+  chmod -R 700 /home/$LINUX_USER/.ssh
+
+  # Create temporary directory to store credentials files
+  TEMP_CREDENTIALS_DIRECTORY="/home/"$LINUX_USER"/.tmp_credentials"
+  mkdir $TEMP_CREDENTIALS_DIRECTORY
+  chmod 700 $TEMP_CREDENTIALS_DIRECTORY
+
+  # Generate SSH keys
+  ssh-keygen -q -N $SSH_PASSWORD -C $DOMAIN_NAME -f $TEMP_CREDENTIALS_DIRECTORY"/id_rsa_"$LINUX_USER
+
+  # Copy public key into authorized_keys
+  cp $TEMP_CREDENTIALS_DIRECTORY"/id_rsa_"$LINUX_USER".pub" /home/$LINUX_USER/.ssh/authorized_keys
+  chmod 600 /home/$LINUX_USER/.ssh/authorized_keys
+
+  # Generate a text file that provides all credential information
+  sed \
+    -e "s;%IP_ADDRESS%;$IP_ADDRESS;g" \
+    -e "s;%LINUX_USER%;$LINUX_USER;g" \
+    -e "s;%GIT_DIRECTORY%;$GIT_DIRECTORY;g" \
+    -e "s;%LINUX_GROUP%;$LINUX_GROUP;g" \
+    -e "s;%LINUX_PASSWORD%;$LINUX_PASSWORD;g" \
+    -e "s;%SSH_PASSWORD%;$SSH_PASSWORD;g" \
+    -e "s;%DATABASE_NAME%;$DATABASE_NAME;g" \
+    -e "s;%DATABASE_USER%;$DATABASE_USER;g" \
+    -e "s;%DATABASE_PASSWORD%;$DATABASE_PASSWORD;g" \
+    -e "s;%HTPASSWD%;$HTPASSWD_PW;g" \
+    -e "s;%DOMAIN_NAME%;$DOMAIN_NAME;g" \
+    -e "s;%SITE_USER%;$SITE_USER;g" \
+    -e "s;%SITE_PASSWORD%;$SITE_PASSWORD;g" \
+    $SCRIPT_DIRECTORY/templates/credentials_template > $TEMP_CREDENTIALS_DIRECTORY"/"$LINUX_USER"_web_credentials.txt"
+
+  cd $TEMP_CREDENTIALS_DIRECTORY
+  tar -zcf /home/$LINUX_USER/$LINUX_USER"_web_credentials.tar.gz" *
+  chown $LINUX_USER:$LINUX_USER /home/$LINUX_USER/$LINUX_USER"_web_credentials.tar.gz"
+  chmod 770 /home/$LINUX_USER/$LINUX_USER"_web_credentials.tar.gz"
+
+  # Remove temporary credentials directory
+  rm -R $TEMP_CREDENTIALS_DIRECTORY
+}
+
+# RESET ALL INPUT VARIABLES
+reset_variables() {
+	DOMAIN_NAME=""
+	WEB_FRAMEWORK=""
+	CREATE_DEV=""
+	CREATE_STAGE=""
+	CREATE_LIVE=""
+	SITE_INSTANCES[dev]=""
+	SITE_INSTANCES[stage]=""
+	SITE_INSTANCES[live]=""
+	get_info
+}
+
+# CREATE WEB AND GIT DIRECTORIES
+create_directories() {
+  # Loop through the SITE_INSTANCES array, create web directories and set perms
+  for SITE_INSTANCE in "${!SITE_INSTANCES[@]}"; do
+    if [ "${SITE_INSTANCES[$SITE_INSTANCE]}" == "n" ]; then
+      continue
+    fi
+    mkdir $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE
+    mkdir $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTACE/http_docs
+    chown -R root:$LINUX_GROUP $WWW_DIRECTORY/$DIRECTORY_NAME
+    chmod -R 750 $WWW_DIRECTORY/$DIRECTORY_NAME
+    chmod -R g+s $WWW_DIRECTORY/$DIRECTORY_NAME
+  done
+
+  # Create git directory
+  mkdir $GIT_ROOT_DIRECTORY/$DIRECTORY_NAME.git
+  chown -R root:$LINUX_GROUP $GIT_ROOT_DIRECTORY/$DIRECTORY_NAME.git
+  chmod -R 750 $GIT_ROOT_DIRECTORY/$DIRECTORY_NAME.git
+  chmod -R g+s $GIT_ROOT_DIRECTORY/$DIRECTORY_NAME.git
+}
+
+# CREATE ROBOTS.TXT FILES
+create_robots_txt() {
+  # dev
+  if [ "${SITE_INSTANCES[dev]}" == "y" ]; then
+    if [ -f "$WWW_DIRECTORY/$DIRECTORY_NAME/dev/http_docs/robots.txt" ]; then
+      rm $WWW_DIRECTORY/$DIRECTORY_NAME/dev/http_docs/robots.txt
+    fi
+    touch $WWW_DIRECTORY/$DIRECTORY_NAME/dev/http_docs/robots.txt
+    printf "User-agent: *\nDisallow: /" >> $WWW_DIRECTORY/$DIRECTORY_NAME/dev/http_docs/robots.txt
+    chown root:www-data $WWW_DIRECTORY/$DIRECTORY_NAME/dev/http_docs/robots.txt
+    chmod 750 $WWW_DIRECTORY/$DIRECTORY_NAME/dev/http_docs/robots.txt
+  fi
+
+  # stage
+  if [ "$SITE_INSTANCES[stage]" == "y" ]; then
+    if [ -f "$WWW_DIRECTORY/$DIRECTORY_NAME/stage/http_docs/robots.txt" ]; then
+      rm $WWW_DIRECTORY/$DIRECTORY_NAME/stage/http_docs/robots.txt
+    fi
+    touch $WWW_DIRECTORY/$DIRECTORY_NAME/stage/http_docs/robots.txt
+    printf "User-agent: *\nDisallow: /" >> $WWW_DIRECTORY/$DIRECTORY_NAME/stage/http_docs/robots.txt
+    chown root:www-data $WWW_DIRECTORY/$DIRECTORY_NAME/stage/http_docs/robots.txt
+    chmod 750 $WWW_DIRECTORY/$DIRECTORY_NAME/stage/http_docs/robots.txt
+  fi
+}
+
+# CREATE HTPASSWD FILES
+create_htpasswd_file() {
+  printf $LINUX_USER":$(openssl passwd -apr1 $HTPASSWD_PASSWORD)\n" >> $HTPASSWD_FILE 
+  chmod 750 $HTPASSWD_FILE
+}
+
+# CREATE DATABASE USER
+create_db_user() {
+  mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PASSWORD -e "CREATE USER "$DATABASE_USER"@'localhost' IDENTIFIED BY '$DATABASE_PASSWORD';"
+}
+
+
+# CREATE DATABASES
+create_db() {
+  for SITE_INSTANCE in "${!SITE_INSTANCES[@]}"; do
+    if [ "${SITE_INSTANCES[$SITE_INSTANCE]}" == "n" ]; then
+      continue
+    fi
+    mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PASSWORD -e "CREATE DATABASE "$DATABASE_NAME"_$SITE_INSTANCE;"
+  done
+}
+
+# SET DATABASE USER PERMS 
+set_db_perms() {
+  for SITE_INSTANCE in "${!SITE_INSTANCES[@]}"; do
+    if [ "${SITE_INSTANCES[$SITE_INSTANCE]}" == "n" ]; then
+      continue
+    fi
+    mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PASSWORD -e "GRANT ALL PRIVILEGES ON $DATABASE_NAME_$SITE_INSTANCE.* TO '$DATABASE_USER'@'localhost';"
+  done
+  mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PASSWORD -e "FLUSH PRIVILEGES;"
+}
+
+# CREATE NGINX CONFIGS
+create_nginx_configs() {
+  NGINX_DOMAIN_NAMES=""
+  NGINX_TEMPLATE=""
+  touch $NGINX_DIRECTORY/sites-available/$DOMAIN_NAME
+
+  for SITE_INSTANCE in "${!SITE_INSTANCES[@]}"; do
+    if [ "${SITE_INSTANCES[$SITE_INSTANCE]}" == "n" ]; then
+      continue
+    fi
+
+    # Include www CName if live
+    if [ $SITE_INSTANCE == 'live' ]; then
+      NGINX_DOMAIN_NAMES="$DOMAIN_NAME www.$DOMAIN_NAME"
+    else
+      NGINX_DOMAIN_NAMES="$SITE_INSTANCE.$DOMAIN_NAME"
+    fi
+
+    # Set template to htpasswd or not
+    if [ ${SITE_INSTANCES_AUTH[$SITE_INSTANCE]} == 'y' ]; then
+      NGINX_TEMPLATE=$SCRIPT_DIRECTORY/templates/nginx_server_templates/php_nginx_config_with_auth
+    else
+      NGINX_TEMPLATE=$SCRIPT_DIRECTORY/templates/nginx_server_templates/php_nginx_config
+    fi
+
+    # Create temporary file to modify template
+    touch $NGINX_DIRECTORY/sites-available/$DOMAIN_NAME.tmp
+
+    # Insert values into temporary template file
+    sed \
+      -e "s;%NGINX_PORT%;$NGINX_PORT;g" \
+      -e "s;%DOMAIN_NAME%;$DOMAIN_NAME;g" \
+      -e "s;%DOMAIN_NAMES%;$NGINX_DOMAIN_NAMES;g" \
+      -e "s;%WWW_DIRECTORY%;$WWW_DIRECTORY;g" \
+      -e "s;%DIRECTORY_NAME%;$DIRECTORY_NAME;g" \
+      -e "s;%SITE_INSTANCE%;$SITE_INSTANCE;g" \
+      -e "s;%NGINX_LOG_DIRECTORY%;$NGINX_LOG_DIRECTORY;g" \
+      -e "s;%SIMPLE_NAME%;$SIMPLE_NAME;g" \
+      -e "s;%HTPASSWD_DIRECTORY%;$HTPASSWD_DIRECTORY;g" \
+      $NGINX_TEMPLATE > \
+      $NGINX_DIRECTORY/sites-available/$DOMAIN_NAME.tmp
+
+    # Copy temporary template file as modified into actual nginx server block
+    cat $NGINX_DIRECTORY/sites-available/$DOMAIN_NAME.tmp >> $NGINX_DIRECTORY/sites-available/$DOMAIN_NAME
+
+    # Remove temporary template file 
+    rm $NGINX_DIRECTORY/sites-available/$DOMAIN_NAME.tmp
+  done
+  # Link to sites-enabled
+  ln -s $NGINX_DIRECTORY/sites-available/$DOMAIN_NAME $NGINX_DIRECTORY/sites-enabled/$DOMAIN_NAME
+
+
+}
+
+# ADD WWW-DATA TO GROUP
+add_www_data_to_group() {
+  # Add www-data user to the new linux group, and restart nginx and php-fpm
+  usermod -a -G $LINUX_GROUP www-data
+  service nginx stop
+  service php5-fpm stop
+  service nginx start
+  service php5-fpm start
+}
+
+# INITIALIZE MASTER REPO
+setup_master_git() {
+  cd $GIT_ROOT_DIRECTORY/$DIRECTORY_NAME.git
+  git init --bare --shared
+}
+
+
+# CREATE FRAMEWORK DOCS
+create_docs() {
+  # Create a temporary directory to store the original files
+  TEMP_GIT_DIRECTORY=/opt/git/$DIRECTORY_NAME.tmp.git
+  mkdir $TEMP_GIT_DIRECTORY
+  mkdir $TEMP_GIT_DIRECTORY/http_docs
+  chown -R root:root $TEMP_GIT_DIRECTORY
+  chmod -R 700 $TEMP_GIT_DIRECTORY
+
+  # Copy the framework files to the temporary git directory
+  if [ "$WEB_FRAMEWORK" == "none" ]; then
+    touch $TEMP_GIT_DIRECTORY/README
+    printf "$DOMAIN_NAME Readme\n=====================" >> $TEMP_GIT_DIRECTORY/README
+  fi
+
+  if [ "$WEB_FRAMEWORK" == "drupal" ]; then
+    cp -R $SCRIPT_DIRECTORY/frameworks/drupal/* $TEMP_GIT_DIRECTORY/http_docs
+    rm -R $TEMP_GIT_DIRECTORY/http_docs/.git
+  fi
+
+  if [ "$WEB_FRAMEWORK" == "wordpress" ]; then
+    cp -R $SCRIPT_DIRECTORY/frameworks/WordPress/* $TEMP_GIT_DIRECTORY/http_docs
+    rm -R $TEMP_GIT_DIRECTORY/http_docs/.git
+  fi
+
+  if [ "$WEB_FRAMEWORK" == "cakephp" ]; then
+    cp -R $SCRIPT_DIRECTORY/frameworks/cakephp/* $TEMP_GIT_DIRECTORY/http_docs
+    rm -R $TEMP_GIT_DIRECTORY/http_docs/.git
+  fi
+
+  # Commit the inital files to the temporary repo, push to the master repo and delete the temp repo
+  cd $TEMP_GIT_DIRECTORY
+  git init
+  git add -A
+  git commit --quiet -m "Adding initial, raw framework\n"
+  git remote add temp_origin file://$GIT_ROOT_DIRECTORY/$DIRECTORY_NAME.git
+  git push temp_origin master
+  rm -R $TEMP_GIT_DIRECTORY
+}
+
+# SET UP GIT CLONES
+setup_git_clones() {
+  if [ "$CREATE_DEV" == "y" ]; then
+    git clone $GIT_ROOT_DIRECTORY/$DIRECTORY_NAME.git $WWW_DIRECTORY/$DIRECTORY_NAME/dev
+  fi
+
+  if [ "$CREATE_STAGE" == "y" ]; then
+    if [ "$CREATE_DEV" == y" ]; then
+      git clone $WWW_DIRECTORY/$DIRECTORY_NAME/dev $WWW_DIRECTORY/$DIRECTORY_NAME/stage
+    else
+      git clone $GIT_ROOT_DIRECTORY/$DIRECTORY_NAME.git $WWW_DIRECTORY/$DIRECTORY_NAME/stage
+    fi
+  fi
+
+  if [ "$CREATE_LIVE" == "y" ]; then
+    if [ "$CREATE_STAGE" == y" ]; then
+      git clone $WWW_DIRECTORY/$DIRECTORY_NAME/stage $WWW_DIRECTORY/$DIRECTORY_NAME/live
+    else
+      git clone $GIT_ROOT_DIRECTORY/$DIRECTORY_NAME.git $WWW_DIRECTORY/$DIRECTORY_NAME/live
+    fi
+  fi
+}
+
+# INSTALL DRUPAL
+install_drupal() {
+  for SITE_INSTANCE in "${!SITE_INSTANCES[@]}"; do
+    if [ "${SITE_INSTANCES[$SITE_INSTANCE]}" == "n" ]; then
+      continue
+    fi
+    cd $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs
+    drush site-install -y\
+      --db-url="mysql://"$DATABASE_USER":"$DATABASE_PASSWORD"@localhost/"$DATABASE_NAME"_$SITE_INSTANCE" \
+      --account-mail=$EMAIL_ADDRESS \
+      --account-pass=$SITE_PASSWORD \
+      --site-mail=$EMAIL_ADDRESS \
+      --site-name=$DOMAIN_NAME
+    done
+}
+
+# SET DRUPAL PERMS
+drupal_perms() {
+  for SITE_INSTANCE in "${!SITE_INSTANCES[@]}"; do
+    if [ "${SITE_INSTANCES[$SITE_INSTANCE]}" == "n" ]; then
+      continue
+    fi
+    cd $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs
+    find . -type d -exec chmod 750 '{}' \;
+    find . -type f -exec chmod 640 '{}' \;
+    cd $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/sites
+    find . -type d -name files -exec chmod ug=rwx,o= '{}' \;
+    for d in ./*/files; do
+      find $d -type d -exec chmod ug=rwx,o= '{}' \;
+      find $d -type f -exec chmod ug=rw,o= '{}' \;
+    done
+  done
+}
+
+# INSTALL WORDPRESS
+install_wordpress() {
+  # generate salt vals
+  AUTH_KEY=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
+  SECURE_AUTH_KEY=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
+  LOGGED_IN_KEY=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
+  NONCE_KEY=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
+  AUTH_SALT=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
+  SECURE_AUTH_SALT=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
+  LOGGED_IN_SALT=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
+  NONCE_SALT=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
+
+  for SITE_INSTANCE in "${!SITE_INSTANCES[@]}"; do
+    if [ "${SITE_INSTANCES[$SITE_INSTANCE]}" == "n" ]; then
+      continue
+    fi
+    rm $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-config-sample.php
+
+    sed \
+      -e "s;%DATABASE_NAME%;"$DATABASE_NAME"_dev;g" \
+      -e "s;%DATABASE_USER%;$DATABASE_USER;g" \
+      -e "s;%DATABASE_PASSWORD%;$DATABASE_PASSWORD;g" \
+      -e "s;%AUTH_KEY%;$AUTH_KEY;g" \
+      -e "s;%SECURE_AUTH_KEY%;$SECURE_AUTH_KEY;g" \
+      -e "s;%LOGGED_IN_KEY%;$LOGGED_IN_KEY;g" \
+      -e "s;%NONCE_KEY%;$NONCE_KEY;g" \
+      -e "s;%AUTH_SALT%;$AUTH_SALT;g" \
+      -e "s;%SECURE_AUTH_SALT%;$SECURE_AUTH_SALT;g" \
+      -e "s;%LOGGED_IN_SALT%;$LOGGED_IN_SALT;g" \
+      -e "s;%NONCE_SALT%;$NONCE_SALT;g" \
+      $SCRIPT_DIRECTORY/templates/framework_templates/wordpress/wp_config_template > \
+      $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-config.php
+
+    # run install script
+    /usr/bin/php -r "
+      include '$WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-admin/install.php';
+      wp_install('"$DOMAIN_NAME"', 'admin', $EMAIL_ADDRESS, 1, '', '"$SITE_PASSWORD"');
+    " > /dev/null 2>&1
+  done
+}
+
+# CAKEPHP SETUP
+install_cakephp() {
+  SECURITY_SALT=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 40 | head -n 1)
+  SECURITY_CIPHER_SEED=$(cat /dev/urandom | tr -dc '0-9' | fold -w 29 | head -n 1)
+
+  if [ "$CREATE_DEV" == "y" ]; then
+    chmod -R 770 $WWW_DIRECTORY/$DIRECTORY_NAME/dev/http_docs/app/tmp
+  fi
+
+  if [ "$CREATE_STAGE" == "y" ]; then
+    chmod -R 770 $WWW_DIRECTORY/$DIRECTORY_NAME/stage/http_docs/app/tmp
+  fi
+
+  if [ "$CREATE_LIVE" == "y" ]; then
+    chmod -R 770 $WWW_DIRECTORY/$DIRECTORY_NAME/live/http_docs/app/tmp
+  fi
+
+  # REWRITE LIVE CORE.PHP
+  sed \
+    -e "/Configure::write('App.baseUrl', env('SCRIPT_NAME'));/ a\\ \ Configure::write('App.baseUrl', '/');" \
+    -e "s/Configure::write('Security.salt',/\/\/&/" \
+    -e "/Configure::write('Security.salt',/ a\ Configure::write('Security.salt', '$SECURITY_SALT');" \
+    -e "s/Configure::write('Security.cipherSeed',/\/\/&/" \
+    -e "/Configure::write('Security.cipherSeed',/ a\ Configure::write('Security.salt', '$SECURITY_CIPHER_SEED');" \
+    /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/core.php > \
+    /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/core.php.tmp
+
+  rm /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/core.php
+  mv /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/core.php.tmp /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/core.php
+
+  # REWRITE LIVE DATABASE.PHP
+  sed \
+    -e "s/'login' => 'user'/'login' => '$DATABASE_USER'/" \
+    -e "s/'password' => 'password'/'password' => '$DATABASE_PASSWORD'/" \
+    -e "s/'database' => 'database_name'/'database' => '$DATABASE_NAME_live'/"\
+    /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/database.php.default > \
+    /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/database.php
+
+  rm /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/database.php.default
+}
+
+# MAIN
+check_if_root
+printf "=================================================================\n"
+printf "Welcome to the interactive web host setup for mwmdevelopment.com\n"
+
+# DO IN ORDER
+get_info
+create_credentials
+create_directories
+setup_master_git
+create_docs
+setup_git_clones
+create_robots_txt
+set_directory_perms
+
+# ORDER AGNOSTIC
+create_htpasswd_file
+create_db
+create_db_user
+set_db_perms
+create_nginx_configs
+add_www_data_to_group
+
+# SITE-SPECIFIC
+
+# INSTALL DRUPAL SITE
+if [ "$WEB_FRAMEWORK" == "drupal" ]; then
+  install_drupal
+  drupal_perms
+fi
+
+# INSTALL WORDPRESS SITE
+if [ "$WEB_FRAMEWORK" == "wordpress" ]; then
+  install_wordpress
+fi
+
+# INSTALL CAKEPHP SITE
+if [ "$WEB_FRAMEWORK" == "cakephp" ]; then
+  install_cakephp
+fi
