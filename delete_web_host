@@ -4,6 +4,7 @@
 
 #==============================================================================
 # INCLUDE SCRIPT CONFIG VARS
+readonly SCRIPT_DIRECTORY=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 source $SCRIPT_DIRECTORY/config
 
 #==============================================================================
@@ -38,10 +39,10 @@ groupdel $SIMPLE_NAME
 groupdel "www-"$SIMPLE_NAME
 
 # REMOVE MYSQL DATABASES AND USER
-mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PW -e "DROP DATABASE "$SIMPLE_NAME"_dev;"
-mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PW -e "DROP DATABASE "$SIMPLE_NAME"_stage;"
-mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PW -e "DROP DATABASE "$SIMPLE_NAME"_live;"
-mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PW -e "DROP USER '$SIMPLE_NAME'@'localhost'"
+mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PASSWORD -e "DROP DATABASE "$SIMPLE_NAME"_dev;"
+mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PASSWORD -e "DROP DATABASE "$SIMPLE_NAME"_stage;"
+mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PASSWORD -e "DROP DATABASE "$SIMPLE_NAME"_live;"
+mysql -u $MASTER_MYSQL_USER -p$MASTER_MYSQL_PASSWORD -e "DROP USER '$SIMPLE_NAME'@'localhost'"
 
 # RESTART WEB SERVER
 service nginx restart

@@ -276,13 +276,16 @@ create_credentials() {
 
 # CREATE WEB AND GIT DIRECTORIES
 create_directories() {
+  # Create main web host directory
+  mkdir $WWW_DIRECTORY/$DIRECTORY_NAME
+
   # Loop through the SITE_INSTANCES array, create web directories and set perms
   for SITE_INSTANCE in "${!SITE_INSTANCES[@]}"; do
     if [ "${SITE_INSTANCES[$SITE_INSTANCE]}" == "n" ]; then
       continue
     fi
     mkdir $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE
-    mkdir $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTACE/http_docs
+    mkdir $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs
     chown -R root:$LINUX_GROUP $WWW_DIRECTORY/$DIRECTORY_NAME
     chmod -R 750 $WWW_DIRECTORY/$DIRECTORY_NAME
     chmod -R g+s $WWW_DIRECTORY/$DIRECTORY_NAME
@@ -576,7 +579,7 @@ install_wordpress() {
       -e "s/define('SECURE_AUTH_SALT', 'put your unique phrase here');/define('SECURE_AUTH_SALT', '$SECURE_AUTH_SALT');/" \
       -e "s/define('LOGGED_IN_SALT',   'put your unique phrase here');/define('LOGGED_IN_SALT',   '$LOGGED_IN_SALT');/" \
       -e "s/define('NONCE_SALT',       'put your unique phrase here');/define('NONCE_SALT',       '$NONCE_SALT');/" \
-      $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-config-sample.php >
+      $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-config-sample.php > \
       $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-config.php.tmp
 
     # Remove old file, copy new file in
@@ -663,20 +666,20 @@ add_www_data_to_group
 # SITE-SPECIFIC
 
 # INSTALL DRUPAL SITE
-if [ "$WEB_FRAMEWORK" == "drupal" ]; then
-  install_drupal
-  drupal_perms
-fi
+#if [ "$WEB_FRAMEWORK" == "drupal" ]; then
+#  install_drupal
+#  drupal_perms
+#fi
 
 # INSTALL WORDPRESS SITE
-if [ "$WEB_FRAMEWORK" == "wordpress" ]; then
-  install_wordpress
-fi
+#if [ "$WEB_FRAMEWORK" == "wordpress" ]; then
+#  install_wordpress
+#fi
 
 # INSTALL CAKEPHP SITE
-if [ "$WEB_FRAMEWORK" == "cakephp" ]; then
-  install_cakephp
-fi
+#if [ "$WEB_FRAMEWORK" == "cakephp" ]; then
+#  install_cakephp
+#fi
 
 # POST SETUP
-create_robots_txt
+#create_robots_txt
