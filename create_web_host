@@ -203,6 +203,19 @@ confirm_info() {
   done
 }
 
+# RESET ALL INPUT VARIABLES
+reset_variables() {
+        DOMAIN_NAME=""
+        WEB_FRAMEWORK=""
+        CREATE_DEV=""
+        CREATE_STAGE=""
+        CREATE_LIVE=""
+        SITE_INSTANCES[dev]=""
+        SITE_INSTANCES[stage]=""
+        SITE_INSTANCES[live]=""
+        get_info
+}
+
 # CREATE CREDENTIALS
 create_credentials() {
   # Add Linux user and set password
@@ -259,19 +272,6 @@ create_credentials() {
 
   # Remove temporary credentials directory
   rm -R $TEMP_CREDENTIALS_DIRECTORY
-}
-
-# RESET ALL INPUT VARIABLES
-reset_variables() {
-	DOMAIN_NAME=""
-	WEB_FRAMEWORK=""
-	CREATE_DEV=""
-	CREATE_STAGE=""
-	CREATE_LIVE=""
-	SITE_INSTANCES[dev]=""
-	SITE_INSTANCES[stage]=""
-	SITE_INSTANCES[live]=""
-	get_info
 }
 
 # CREATE WEB AND GIT DIRECTORIES
@@ -403,8 +403,6 @@ create_nginx_configs() {
   done
   # Link to sites-enabled
   ln -s $NGINX_DIRECTORY/sites-available/$DOMAIN_NAME $NGINX_DIRECTORY/sites-enabled/$DOMAIN_NAME
-
-
 }
 
 # ADD WWW-DATA TO GROUP
@@ -422,7 +420,6 @@ setup_master_git() {
   cd $GIT_ROOT_DIRECTORY/$DIRECTORY_NAME.git
   git init --bare --shared
 }
-
 
 # CREATE FRAMEWORK DOCS
 create_docs() {
@@ -454,11 +451,32 @@ create_docs() {
     rm -R $TEMP_GIT_DIRECTORY/http_docs/.git
   fi
 
+  # Add default gitignore files
+  GIT_IGNORE_FILE=''
+
+  if [ "$WEB_FRAMEWORK" == "none" ]; then
+    GIT_IGNORE_FILE=$SCRIPT_DIRECTORY/templates/gitignore_files/default_gitignore
+  fi
+
+  if [ "$WEB_FRAMEWORK" == "drupal" ]; then
+    GIT_IGNORE_FILE=$SCRIPT_DIRECTORY/templates/gitignore_files/drupal_gitignore
+  fi
+
+  if [ "$WEB_FRAMEWORK" == "wordpress" ]; then
+    GIT_IGNORE_FILE=$SCRIPT_DIRECTORY/templates/gitignore_files/wordpress_gitignore
+  fi
+
+  if [ "$WEB_FRAMEWORK" == "cakephp" ]; then
+    GIT_IGNORE_FILE=$SCRIPT_DIRECTORY/templates/gitignore_files/cakephp_gitignore
+  fi
+
+  cp $GIT_IGNORE_FILE $TEMP_GIT_DIRECTORY
+
   # Commit the inital files to the temporary repo, push to the master repo and delete the temp repo
   cd $TEMP_GIT_DIRECTORY
   git init
   git add -A
-  git commit --quiet -m "Adding initial, raw framework\n"
+  git commit --quiet -m "Initial commit\n"
   git remote add temp_origin file://$GIT_ROOT_DIRECTORY/$DIRECTORY_NAME.git
   git push temp_origin master
   rm -R $TEMP_GIT_DIRECTORY
@@ -487,6 +505,18 @@ setup_git_clones() {
   fi
 }
 
+# SET GENERAL SITE PERMS
+set_general_site_perms() {
+  for SITE_INSTANCE in "${!SITE_INSTANCES[@]}"; do
+    if [ "${SITE_INSTANCES[$SITE_INSTANCE]}" == "n" ]; then
+      continue
+    fi
+    cd $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs
+    find . -type d -exec chmod 750 '{}' \;
+    find . -type f -exec chmod 640 '{}' \;
+  done
+}
+
 # INSTALL DRUPAL
 install_drupal() {
   for SITE_INSTANCE in "${!SITE_INSTANCES[@]}"; do
@@ -500,18 +530,11 @@ install_drupal() {
       --account-pass=$SITE_PASSWORD \
       --site-mail=$EMAIL_ADDRESS \
       --site-name=$DOMAIN_NAME
-    done
-}
 
-# SET DRUPAL PERMS
-drupal_perms() {
-  for SITE_INSTANCE in "${!SITE_INSTANCES[@]}"; do
-    if [ "${SITE_INSTANCES[$SITE_INSTANCE]}" == "n" ]; then
-      continue
-    fi
-    cd $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs
-    find . -type d -exec chmod 750 '{}' \;
-    find . -type f -exec chmod 640 '{}' \;
+    # Set perms applicable to all sites
+    set_general_site_perms
+
+    # Set perms specific to Drupal
     cd $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/sites
     find . -type d -name files -exec chmod ug=rwx,o= '{}' \;
     for d in ./*/files; do
@@ -539,26 +562,35 @@ install_wordpress() {
     fi
     rm $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-config-sample.php
 
-    sed \
-      -e "s;%DATABASE_NAME%;"$DATABASE_NAME"_dev;g" \
-      -e "s;%DATABASE_USER%;$DATABASE_USER;g" \
-      -e "s;%DATABASE_PASSWORD%;$DATABASE_PASSWORD;g" \
-      -e "s;%AUTH_KEY%;$AUTH_KEY;g" \
-      -e "s;%SECURE_AUTH_KEY%;$SECURE_AUTH_KEY;g" \
-      -e "s;%LOGGED_IN_KEY%;$LOGGED_IN_KEY;g" \
-      -e "s;%NONCE_KEY%;$NONCE_KEY;g" \
-      -e "s;%AUTH_SALT%;$AUTH_SALT;g" \
-      -e "s;%SECURE_AUTH_SALT%;$SECURE_AUTH_SALT;g" \
-      -e "s;%LOGGED_IN_SALT%;$LOGGED_IN_SALT;g" \
-      -e "s;%NONCE_SALT%;$NONCE_SALT;g" \
-      $SCRIPT_DIRECTORY/templates/framework_templates/wordpress/wp_config_template > \
-      $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-config.php
+    TEMP_DB_NAME = $SIMPLE_NAME"_"$SITE_INSTANCE
 
-    # run install script
+    sed \
+      -e "s/define('DB_NAME', 'database_name_here');/define('DB_NAME', '$TEMP_DB_NAME');/" \
+      -e "s/define('DB_USER', 'username_here');/define('DB_USER', '$DATABASE_USER');/" \
+      -e "s/define('DB_PASSWORD', 'password_here');/define('DB_PASSWORD', '$DATABASE_PASSWORD');/" \
+      -e "s/define('AUTH_KEY',         'put your unique phrase here');/define('AUTH_KEY',         '$AUTH_KEY');/" \
+      -e "s/define('SECURE_AUTH_KEY',  'put your unique phrase here');/define('SECURE_AUTH_KEY',  '$SECURE_AUTH_KEY');/" \
+      -e "s/define('LOGGED_IN_KEY',    'put your unique phrase here');/define('LOGGED_IN_KEY',    '$LOGGED_IN_KEY');/" \
+      -e "s/define('NONCE_KEY',        'put your unique phrase here');/define('NONCE_KEY',        '$NONCE_KEY');/" \
+      -e "s/define('AUTH_SALT',        'put your unique phrase here');/define('AUTH_SALT',        '$AUTH_SALT');/" \
+      -e "s/define('SECURE_AUTH_SALT', 'put your unique phrase here');/define('SECURE_AUTH_SALT', '$SECURE_AUTH_SALT');/" \
+      -e "s/define('LOGGED_IN_SALT',   'put your unique phrase here');/define('LOGGED_IN_SALT',   '$LOGGED_IN_SALT');/" \
+      -e "s/define('NONCE_SALT',       'put your unique phrase here');/define('NONCE_SALT',       '$NONCE_SALT');/" \
+      $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-config-sample.php >
+      $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-config.php.tmp
+
+    # Remove old file, copy new file in
+    rm $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-config-sample.php
+    mv $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-config.php.tmp $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-config.php
+
+    # Run WordPress install script
     /usr/bin/php -r "
       include '$WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/wp-admin/install.php';
       wp_install('"$DOMAIN_NAME"', 'admin', $EMAIL_ADDRESS, 1, '', '"$SITE_PASSWORD"');
     " > /dev/null 2>&1
+
+    # Set perms general to all sites
+    set_general_site_perms
   done
 }
 
@@ -567,40 +599,44 @@ install_cakephp() {
   SECURITY_SALT=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 40 | head -n 1)
   SECURITY_CIPHER_SEED=$(cat /dev/urandom | tr -dc '0-9' | fold -w 29 | head -n 1)
 
-  if [ "$CREATE_DEV" == "y" ]; then
-    chmod -R 770 $WWW_DIRECTORY/$DIRECTORY_NAME/dev/http_docs/app/tmp
-  fi
+  for SITE_INSTANCE in "${!SITE_INSTANCES[@]}"; do
+    if [ "${SITE_INSTANCES[$SITE_INSTANCE]}" == "n" ]; then
+      continue
+    fi
 
-  if [ "$CREATE_STAGE" == "y" ]; then
-    chmod -R 770 $WWW_DIRECTORY/$DIRECTORY_NAME/stage/http_docs/app/tmp
-  fi
+    # Set perms specific to Cakephp
+    chmod -R 770 $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/app/tmp
 
-  if [ "$CREATE_LIVE" == "y" ]; then
-    chmod -R 770 $WWW_DIRECTORY/$DIRECTORY_NAME/live/http_docs/app/tmp
-  fi
+    # REWRITE LIVE CORE.PHP
+    sed \
+      -e "/Configure::write('App.baseUrl', env('SCRIPT_NAME'));/ a\\ \ Configure::write('App.baseUrl', '/');" \
+      -e "s/Configure::write('Security.salt',/\/\/&/" \
+      -e "/Configure::write('Security.salt',/ a\ Configure::write('Security.salt', '$SECURITY_SALT');" \
+      -e "s/Configure::write('Security.cipherSeed',/\/\/&/" \
+      -e "/Configure::write('Security.cipherSeed',/ a\ Configure::write('Security.salt', '$SECURITY_CIPHER_SEED');" \
+      $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/app/Config/core.php > \
+      $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/app/Config/core.php.tmp
 
-  # REWRITE LIVE CORE.PHP
-  sed \
-    -e "/Configure::write('App.baseUrl', env('SCRIPT_NAME'));/ a\\ \ Configure::write('App.baseUrl', '/');" \
-    -e "s/Configure::write('Security.salt',/\/\/&/" \
-    -e "/Configure::write('Security.salt',/ a\ Configure::write('Security.salt', '$SECURITY_SALT');" \
-    -e "s/Configure::write('Security.cipherSeed',/\/\/&/" \
-    -e "/Configure::write('Security.cipherSeed',/ a\ Configure::write('Security.salt', '$SECURITY_CIPHER_SEED');" \
-    /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/core.php > \
-    /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/core.php.tmp
+    rm $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/app/Config/core.php
+    mv $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/app/Config/core.php.tmp $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/app/Config/core.php
 
-  rm /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/core.php
-  mv /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/core.php.tmp /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/core.php
+    # REWRITE LIVE DATABASE.PHP
+    sed \
+      -e "s/'login' => 'user'/'login' => '$DATABASE_USER'/" \
+      -e "s/'password' => 'password'/'password' => '$DATABASE_PASSWORD'/" \
+      -e "s/'database' => 'database_name'/'database' => '$DATABASE_NAME_live'/"\
+      $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/app/Config/database.php.default > \
+      $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/app/Config/database.php
 
-  # REWRITE LIVE DATABASE.PHP
-  sed \
-    -e "s/'login' => 'user'/'login' => '$DATABASE_USER'/" \
-    -e "s/'password' => 'password'/'password' => '$DATABASE_PASSWORD'/" \
-    -e "s/'database' => 'database_name'/'database' => '$DATABASE_NAME_live'/"\
-    /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/database.php.default > \
-    /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/database.php
+    rm $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/app/Config/database.php.default
 
-  rm /var/www/live/$DIRECTORY_NAME/http_docs/app/Config/database.php.default
+    # Set general site perms
+    set_general_site_perms
+
+    # Set perms specific to Cakephp
+    chmod -R 770 $WWW_DIRECTORY/$DIRECTORY_NAME/$SITE_INSTANCE/http_docs/app/tmp
+
+  done
 }
 
 # MAIN
@@ -615,8 +651,6 @@ create_directories
 setup_master_git
 create_docs
 setup_git_clones
-create_robots_txt
-set_directory_perms
 
 # ORDER AGNOSTIC
 create_htpasswd_file
@@ -643,3 +677,6 @@ fi
 if [ "$WEB_FRAMEWORK" == "cakephp" ]; then
   install_cakephp
 fi
+
+# POST SETUP
+create_robots_txt
