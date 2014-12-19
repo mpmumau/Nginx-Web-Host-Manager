@@ -259,7 +259,7 @@ create_credentials() {
     -e "s;%DATABASE_NAME%;$DATABASE_NAME;g" \
     -e "s;%DATABASE_USER%;$DATABASE_USER;g" \
     -e "s;%DATABASE_PASSWORD%;$DATABASE_PASSWORD;g" \
-    -e "s;%HTPASSWD%;$HTPASSWD_PW;g" \
+    -e "s;%HTPASSWD%;$HTPASSWD_PASSWORD;g" \
     -e "s;%DOMAIN_NAME%;$DOMAIN_NAME;g" \
     -e "s;%SITE_USER%;$SITE_USER;g" \
     -e "s;%SITE_PASSWORD%;$SITE_PASSWORD;g" \
@@ -666,20 +666,20 @@ add_www_data_to_group
 # SITE-SPECIFIC
 
 # INSTALL DRUPAL SITE
-#if [ "$WEB_FRAMEWORK" == "drupal" ]; then
-#  install_drupal
-#  drupal_perms
-#fi
+if [ "$WEB_FRAMEWORK" == "drupal" ]; then
+  install_drupal
+  drupal_perms
+fi
 
 # INSTALL WORDPRESS SITE
-#if [ "$WEB_FRAMEWORK" == "wordpress" ]; then
-#  install_wordpress
-#fi
+if [ "$WEB_FRAMEWORK" == "wordpress" ]; then
+  install_wordpress
+fi
 
 # INSTALL CAKEPHP SITE
-#if [ "$WEB_FRAMEWORK" == "cakephp" ]; then
-#  install_cakephp
-#fi
+if [ "$WEB_FRAMEWORK" == "cakephp" ]; then
+  install_cakephp
+fi
 
 # POST SETUP
-#create_robots_txt
+create_robots_txt
